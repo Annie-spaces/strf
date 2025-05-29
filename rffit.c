@@ -88,7 +88,6 @@ double compute_mean_mjd(void)
   return mjdmid;
 }
 
-
 // Select diagonal
 void diagonal_select(float x0,float y0,float x1,float y1,int flag)
 {
@@ -148,122 +147,6 @@ void format_tle(orbit_t orb,char *line1,char *line2)
   return;
 }
 
-
-int identify_satellite_from_doppler(tle_array_t *tle_array, double rmsmax)
-{
-  int i=0,flag=0;
-  double rms,rmsmin;
-  int ia[]={0,0,0,0,0,0};
-  int satno=0,imode;
-  double v,alt,azi,mjdmid;
-  char * satname = NULL;
-
-  // Loop over TLEs
-  for (long elem = 0; elem < tle_array->number_of_elements; elem++) {
-    // Get TLE
-    tle_t *tle = get_tle_by_index(tle_array, elem);
-
-    // Directly assign to global orb variable as even if the fit_curve below gets
-    // the orbit as parameter, fit_curve will call compute_rms without giving
-    // an orbit and the latter will use the global orb variable.
-    orb = tle->orbit;
-    d.satname = tle->name;
-
-    // Initialize
-    imode=init_sgdp4(&orb);
-    if (imode==SGDP4_ERROR) {
-      printf("Error with %d, skipping\n",orb.satno);
-      continue;
-    } 
-    //    velocity(orb,d.p[d.n/2].mjd,d.p[d.n/2].s,&v,&azi,&alt);
-    //    if (alt<0.0)
-    //      printf("Continue?\n");
-    //      continue;
-    rms=fit_curve(orb,ia);
-    if (flag==0 || rms<rmsmin) {
-      rmsmin=rms;
-      satno=orb.satno;
-      satname = tle->name;
-      flag=1;
-    }
-    if (rms<rmsmax) {
-      if (tle->name) {
-        printf("%05d: %.3f kHz %.6f MHz | %s\n", orb.satno, tle->name, rms, d.ffit/1000.0, tle->name);
-      } else {
-        printf("%05d: %.3f kHz %.6f MHz\n", orb.satno, rms, d.ffit/1000.0);
-      }
-      i++;
-    }
-  }
-
-  // Plot results
-  if (i>0) {
-    if (satname) {
-      printf("Identified %d candidate(s), best fitting satellite is %05d - %s.\n", i, satno, satname);
-    } else {
-      printf("Identified %d candidate(s), best fitting satellite is %05d.\n", i, satno);
-    }
-    tle_t * tle = get_tle_by_catalog_id(tle_array, satno);
-    orb = tle->orbit;
-    d.satname = tle->name;
-    rms=fit_curve(orb,ia);
-  } else {
-    printf("No candidates found.\n");
-    satno=-1;
-  }
-
-  return satno;
-}
-
-int identify_satellite_from_visibility(tle_array_t *tle_array, double altmin)
-{
-  int i=0,flag=0,nalt,nsel;
-  int satno=0,imode;
-  double alt,frac;
-
-  // Loop over TLEs
-  for (long elem = 0; elem < tle_array->number_of_elements; elem++) {
-    // Get TLE
-    tle_t * tle = get_tle_by_index(tle_array, elem);
-
-    // Directly assign to global orb variable as even if the fit_curve below gets
-    // the orbit as parameter, fit_curve will call compute_rms without giving
-    // an orbit and the latter will use the global orb variable.
-    orb = tle->orbit;
-    d.satname = tle->name;
-
-    // Initialize
-    imode=init_sgdp4(&orb);
-    if (imode==SGDP4_ERROR) {
-      printf("Error with %d, skipping\n",orb.satno);
-      continue;
-    } 
-
-    if (orb.rev<10.0)
-      continue;
-    
-    // Loop over observations
-    for (i=0,nalt=0,nsel=0;i<d.n;i++) {
-      if (d.p[i].flag==2) {
-	alt=altitude(orb,d.p[i].mjd,d.p[i].s);
-	nsel++;
-	if (alt>altmin)
-	  nalt++;
-      }
-    }
-    frac=(float) nalt/(float) nsel;
-    if (frac>0.95) {
-      if (tle->name) {
-        printf("%5d - %s: %d/%d %.4f\n", orb.satno, tle->name, nalt, nsel, frac);
-      } else {
-        printf("%5d: %d/%d %.4f\n", orb.satno, nalt, nsel, frac);
-      }
-    }
-  }
-
-  return satno;
-}
-
 void usage()
 {
   printf("rffit -d <data file> -c [tle catalog] -i [satno] -h\n\ndata file:    Tabulated doppler curve\ntle catalog:  Catalog with TLE's (optional)\nsatno:        Satellite to load from TLE catalog (optional)\n\n");
@@ -321,10 +204,6 @@ int main(int argc,char *argv[])
   // Decode options
   while ((arg=getopt(argc,argv,"d:c:i:hs:gm:F:"))!=-1) {
     switch(arg) {
-    case 'd':
-      datafile=optarg;
-      break;
-
     case 'c':
       catalog=optarg;
       break;
@@ -332,31 +211,6 @@ int main(int argc,char *argv[])
     case 'i':
       satno=atoi(optarg);
       break;
-
-    case 'F':
-      strcpy(freqlist,optarg);
-      break;
-      
-    case 'h':
-      usage();
-      return 0;
-      break;
-
-    case 'm':
-      foffset=atof(optarg)/1000.0;
-      break;
-      
-    case 's':
-      site_id = atoi(optarg);
-      break;
-
-    case 'g':
-      graves=1;
-      break;
-
-    default:
-      usage();
-      return 0;
     }
   }
 
@@ -364,14 +218,8 @@ int main(int argc,char *argv[])
   d=read_data(datafile,graves,foffset);
   d.fitfreq=1;
 
-  // Set graves frequency
-  if (graves==1) {
-    d.fitfreq=0;
-    d.ffit=143050.0;
-  }
-
-  // Count number of sites and assign colors
-  for (i=0;i<d.n;i++) {
+  // Count number of sites and assign colors. Will not count reoccuring sites. Flag labels which site are counted
+  for (i=0;i<d.n;i++) { //nsite obtained
     // Check if site is assigned
     for (j=0,flag=0;j<nsite;j++) 
       if (site_number[j] == d.p[i].site_id)
@@ -388,15 +236,6 @@ int main(int argc,char *argv[])
     }
   }
 
-  if (site_id == 0) {
-      // No default site selected.
-      // Select first site from datafile
-      if (nsite > 0) {
-        site_id = site_number[0];
-      } else {
-        printf("No default site given and no site in datafile found, abort.");
-      }
-  }
 
   // Set default observing site
   site = get_site(site_id);
