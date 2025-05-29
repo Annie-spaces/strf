@@ -185,7 +185,7 @@ int main(int argc,char *argv[])
   float dx[]={0.1,0.1,0.35,0.35,0.6,0.6,0.85,0.85},dy[]={-0.05,-0.30,-0.05,-0.30,-0.05,-0.30,-0.05,-0.30};
   int satno=-1,status;
   site_t site,s0,s1;
-  int site_number[16],nsite=0,graves=0;
+  int site_number[64],nsite=0,graves=0;
   char *env;
   tle_array_t *tle_array = NULL;
 
@@ -230,7 +230,7 @@ int main(int argc,char *argv[])
       site_number[nsite]=d.p[i].site_id;
       nsite++;
     }
-    if (nsite>=16) {
+    if (nsite>=64) {
       printf("Too many observing sites.\n");
       return 0;
     }
